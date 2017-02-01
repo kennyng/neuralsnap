@@ -26,12 +26,12 @@
 
 
 # NeuralSnap
-# 
+#
 # Works by generating a caption for an image with recurrent and
 # convolutional neural networks using NeuralTalk2. That
 # (brief) caption is then expanded into a poem using a second
 # recurrent neural network.
-# 
+#
 # Ross Goodwin, 2016
 
 import os
@@ -43,11 +43,12 @@ from string import Template
 
 class ImageNarrator(object):
 
-    def __init__(self, output_title, ntalk_model_fp, rnn_model_fp, image_folder_fp,
-                 stanza_len=512, num_steps=16, tgt_steps=[6,7,8,9],
+    def __init__(self, output_title, artist, ntalk_model_fp, rnn_model_fp, image_folder_fp,
+                 stanza_len=512, num_steps=17, tgt_steps=[7,8,9,10,11],
                  highlight_color='#D64541', upload=False):
         self.upload = upload
         self.output_title = output_title
+        self.artist = artist
         self.ntalk_model_fp = ntalk_model_fp
         self.rnn_model_fp = rnn_model_fp
         self.image_folder_fp = image_folder_fp
@@ -113,7 +114,7 @@ class ImageNarrator(object):
 
         with open(self.NEURALTALK2_PATH+'/vis/vis.json') as caption_json:
             caption_obj_list = json.load(caption_json)
-            
+
         caption_obj_list *= self.num_steps
 
 
@@ -125,41 +126,45 @@ class ImageNarrator(object):
         print "INIT CHAR-RNN EXPANSION"
 
         for i in self.tgt_steps:
-            obj = caption_obj_list[i]
-            caption = obj['caption']
-            prepped_caption = caption[0].upper() + caption[1:]
-            
-            temp = str((i+1.0)/float(self.num_steps))
-            print "EXPANDING AT TEMPERATURE " + temp
-            
-            rnn_cmd_list = [
-                'th',
-                'sample.lua',
-                self.rnn_model_fp,
-                '-length',
-                self.stanza_len,
-                '-verbose',
-                '0',
-                '-temperature',
-                temp,
-                '-primetext',
-                prepped_caption,
-                '-gpuid',
-                '-1'
-            ]
+            step_params = [1.0, 1.5]
+            for j in step_params:
+                obj = caption_obj_list[i]
+                caption = obj['caption']
+                prepped_caption = caption[0].upper() + caption[1:]
 
-            rnn_proc = subprocess.Popen(
-                rnn_cmd_list,
-                stdout=subprocess.PIPE
-            )
-            expansion = rnn_proc.stdout.read()
-            
-            self.expansion_obj_list.append({
-                'id': obj['image_id'],
-                'text': expansion
-            })
-            
-            self.caption_list.append((prepped_caption, '<span style="color:'+self.highlight_color+';">'+prepped_caption+'</span>'))
+                temp = str((i+j)/float(self.num_steps))
+                print "STEP: " + str(i+j)
+                print "EXPANDING AT TEMPERATURE " + temp
+
+                rnn_cmd_list = [
+                    'th',
+                    'sample.lua',
+                    self.rnn_model_fp,
+                    '-length',
+                    self.stanza_len,
+                    '-verbose',
+                    '0',
+                    '-temperature',
+                    temp,
+                    '-primetext',
+                    prepped_caption,
+                    '-gpuid',
+                    '-1'
+                ]
+
+                rnn_proc = subprocess.Popen(
+                    rnn_cmd_list,
+                    stdout=subprocess.PIPE
+                )
+                expansion = rnn_proc.stdout.read()
+
+                self.expansion_obj_list.append({
+                    'id': obj['image_id'],
+                    'text': expansion
+                })
+
+                self.caption_list.append((prepped_caption, '<span style="color:'+self.highlight_color+';">'+prepped_caption+'</span>'))
+
 
         # Back to original working directory
         os.chdir(self.SCRIPT_PATH)
@@ -202,7 +207,7 @@ class ImageNarrator(object):
         def add_span(exp, tup):
             original, modified = map(lambda x: x.decode('utf8').encode('ascii', 'xmlcharrefreplace'), tup)
             return exp.replace(original, modified)
-            
+
         final_exps = map(lambda (x,y): add_span(x,y), exps_tups)
 
 
@@ -211,15 +216,15 @@ class ImageNarrator(object):
             exp_ascii = exp_ascii.replace('\n', '</p><p>')
             return '<p>%s</p>' % exp_ascii
 
-        img_block = '<p class="text-center"><a href="%s"><img src="%s" width="275px" class="img-thumbnail"></a></p>' % (img_url, img_url)
+        img_block = '<p class="text-center"><a href="%s"><img src="%s" width="480px" class="img-thumbnail"></a></p>' % (img_url, img_url)
         body_html = img_block + '\n'.join(map(make_html_block, final_exps))
 
 
         with open(self.SCRIPT_PATH+'/template.html', 'r') as tempfile:
             html_temp_str = tempfile.read()
-            
+
         html_temp = Template(html_temp_str)
-        html_result = html_temp.substitute(title=self.output_title, body=body_html)
+        html_result = html_temp.substitute(title=self.output_title, artist=self.artist, body=body_html)
         html_fp = '%s/pages/%s.html' % (self.SCRIPT_PATH, re.sub(r'\W+', '_', self.output_title))
 
 
@@ -232,7 +237,7 @@ class ImageNarrator(object):
 
         if self.upload:
             self.url = upload(html_fp)
-    
+
 
 if __name__ == '__main__':
     # Start Clock
@@ -240,8 +245,8 @@ if __name__ == '__main__':
     start_time = time.time()
 
     # Instatiate expander object
-    script, output_title, ntalk_model_fp, rnn_model_fp, image_folder_fp = sys.argv
-    expander = ImageNarrator(output_title, ntalk_model_fp, rnn_model_fp, image_folder_fp)
+    script, output_title, artist, ntalk_model_fp, rnn_model_fp, image_folder_fp = sys.argv
+    expander = ImageNarrator(output_title, artist, ntalk_model_fp, rnn_model_fp, image_folder_fp)
 
     # Narrate, process, and open HTML File
     import webbrowser
